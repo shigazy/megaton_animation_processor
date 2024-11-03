@@ -297,14 +297,27 @@ def main():
     root = tk.Tk()
     root.withdraw()
 
+    # Get the directory where main.py is located
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Create exports folder if it doesn't exist
+    exports_dir = os.path.join(current_dir, 'exports')
+    os.makedirs(exports_dir, exist_ok=True)
+
     # Ask user to select input directory
-    fbx_dir = filedialog.askdirectory(title="Select FBX Input Directory")
+    fbx_dir = filedialog.askdirectory(
+        title="Select FBX Input Directory",
+        initialdir=current_dir  # Start in the current directory
+    )
     if not fbx_dir:  # User cancelled
         print("No input directory selected. Exiting...")
         return
 
-    # Ask user to select output directory
-    output_dir = filedialog.askdirectory(title="Select Output Directory")
+    # Ask user to select output directory, defaulting to exports folder
+    output_dir = filedialog.askdirectory(
+        title="Select Output Directory",
+        initialdir=exports_dir  # Start in the exports folder
+    )
     if not output_dir:  # User cancelled
         print("No output directory selected. Exiting...")
         return
