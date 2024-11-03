@@ -1,0 +1,14 @@
+output/
+output2/
+output3/
+output4/
+venv/
+venv_new/
+Animations/
+Animations2/
+Animations3/
+processed/
+gif/
+gifs/
+exports/
+.env
