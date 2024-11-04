@@ -184,16 +184,27 @@ def process_animation(fbx_file, output_dir):
         
         # Create 8K grid
         grid_path = os.path.join(output_dir, f"{base_name}_grid.png")
+        logger.debug(f"Attempting to create grid at: {grid_path}")
         create_8k_grid(existing_frames, grid_path)
         
-        logger.info(f"Processed {fbx_file} successfully")
+        if not os.path.exists(grid_path):
+            logger.error(f"Grid image was not created at: {grid_path}")
+            return
+        
+        logger.debug(f"Grid image created successfully at: {grid_path}")
         
         # Run OpenAI parser on the grid image
         try:
+            logger.debug(f"Starting OpenAI parsing for: {grid_path}")
             base_name, description, action_prompt, brief_action = describe_animation(grid_path)
+            logger.debug(f"OpenAI description generated: {description[:100]}...")  # Log first 100 chars
+            
+            logger.debug(f"Getting animation length for: {fbx_output_path}")
             frame_count, duration_seconds, frame_rate = get_animation_length(fbx_output_path)
+            logger.debug(f"Animation stats - Frames: {frame_count}, Duration: {duration_seconds}, FPS: {frame_rate}")
             
             # Create JSON file
+            json_path = os.path.join(output_dir, f"{base_name}_metadata.json")
             create_json_file(
                 base_name, 
                 description, 
@@ -206,9 +217,11 @@ def process_animation(fbx_file, output_dir):
                 },
                 output_dir
             )
-            logger.info(f"Created JSON metadata for {base_name}")
+            logger.info(f"Created JSON metadata at: {json_path}")
+            
         except Exception as e:
-            logger.error(f"Error creating metadata: {str(e)}")
+            logger.error(f"Error in OpenAI parsing: {str(e)}")
+            logger.error(traceback.format_exc())
         
         # Clean up temporary directory
         shutil.rmtree(temp_dir)
@@ -272,13 +285,12 @@ def upload_batch_to_s3_and_record(output_dir):
         if conn:
             try:
                 cursor = conn.cursor()
-                # Generate a proper UUID
-                new_uuid = str(uuid.uuid4())
-                sql = "INSERT INTO api_uploads (id, data) VALUES (%s, %s)"
+                # Let the database generate the UUID
+                sql = "INSERT INTO api_uploads (data) VALUES (%s)"
                 json_data = json.dumps(upload_data)
-                cursor.execute(sql, (new_uuid, json_data))
+                cursor.execute(sql, (json_data,))
                 conn.commit()
-                logger.info(f"Successfully recorded upload with ID: {new_uuid}")
+                logger.info("Successfully recorded upload")
             except Exception as e:
                 logger.error(f"Database error: {str(e)}")
                 logger.error(traceback.format_exc())
@@ -292,6 +304,46 @@ def upload_batch_to_s3_and_record(output_dir):
         logger.error(traceback.format_exc())
         return []
 
+def cleanup_folders(output_dir):
+    """Clean up all temporary folders and files"""
+    try:
+        # Remove folders ending with _frames
+        for item in os.listdir(output_dir):
+            item_path = os.path.join(output_dir, item)
+            if os.path.isdir(item_path):
+                if item.endswith('_frames') or item == 'GIF':
+                    logger.debug(f"Removing folder: {item_path}")
+                    shutil.rmtree(item_path)
+        logger.info("Cleanup of temporary folders completed")
+    except Exception as e:
+        logger.error(f"Error during cleanup: {str(e)}")
+
+def clean_json_files(output_dir):
+    """Remove _grid suffix from JSON files"""
+    try:
+        for filename in os.listdir(output_dir):
+            if filename.endswith('.json'):
+                file_path = os.path.join(output_dir, filename)
+                
+                with open(file_path, 'r') as file:
+                    data = json.load(file)
+                
+                # Remove "_grid" from fields
+                if "prompt" in data:
+                    data["prompt"] = data["prompt"].replace("_grid", "")
+                if "brief_action" in data:
+                    data["brief_action"] = data["brief_action"].replace("_grid", "")
+                
+                # Write the updated data back
+                with open(file_path, 'w') as file:
+                    json.dump(data, file, indent=4)
+                
+                logger.debug(f"Cleaned JSON file: {filename}")
+        
+        logger.info("All JSON files have been cleaned")
+    except Exception as e:
+        logger.error(f"Error cleaning JSON files: {str(e)}")
+
 def main():
     # Create root window but hide it
     root = tk.Tk()
@@ -300,14 +352,16 @@ def main():
     # Get the directory where main.py is located
     current_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # Create exports folder if it doesn't exist
+    # Create input and exports folders if they don't exist
+    input_dir = os.path.join(current_dir, 'input')
     exports_dir = os.path.join(current_dir, 'exports')
+    os.makedirs(input_dir, exist_ok=True)
     os.makedirs(exports_dir, exist_ok=True)
 
-    # Ask user to select input directory
+    # Ask user to select input directory, defaulting to input folder
     fbx_dir = filedialog.askdirectory(
         title="Select FBX Input Directory",
-        initialdir=current_dir  # Start in the current directory
+        initialdir=input_dir  # Start in the input directory
     )
     if not fbx_dir:  # User cancelled
         print("No input directory selected. Exiting...")
@@ -344,24 +398,61 @@ def main():
 
     logger.debug(f"FBX files found: {fbx_files}")
 
+    # Process animations first
     for fbx_file in fbx_files:
         full_path = os.path.join(fbx_dir, fbx_file)
         logger.debug(f"Processing file: {full_path}")
         process_animation(full_path, output_dir)
 
-    # After processing all animations, move GIFs to subfolder
-    move_gifs_to_subfolder(output_dir)
-    print("All GIF files have been moved to the GIF subfolder.")
+    # Run OpenAI parser
+    logger.info("Starting OpenAI parsing process")
+    for file in os.listdir(output_dir):
+        if file.endswith("_grid.webp"):
+            try:
+                grid_path = os.path.join(output_dir, file)
+                base_name = os.path.splitext(file)[0].replace("_grid", "")
+                fbx_path = os.path.join(output_dir, f"{base_name}.fbx")
+                
+                logger.debug(f"Parsing grid image: {grid_path}")
+                base_name, description, action_prompt, brief_action = describe_animation(grid_path)
+                frame_count, duration_seconds, frame_rate = get_animation_length(fbx_path)
+                
+                create_json_file(
+                    base_name,
+                    description,
+                    action_prompt,
+                    brief_action,
+                    {
+                        "frame_count": frame_count,
+                        "duration_seconds": duration_seconds,
+                        "frame_rate": frame_rate
+                    },
+                    output_dir
+                )
+                logger.info(f"Created metadata for {base_name}")
+            except Exception as e:
+                logger.error(f"Error processing metadata for {file}: {str(e)}")
 
-    # After processing all animations and moving GIFs
+    # Clean JSON files
+    logger.info("Cleaning JSON files")
+    clean_json_files(output_dir)
+
+    # Move GIFs to subfolder (if needed for the upload process)
+    move_gifs_to_subfolder(output_dir)
+    logger.info("All GIF files have been moved to the GIF subfolder.")
+
+    # Upload to S3
     logger.info("Starting S3 upload process")
     uploaded_urls = upload_batch_to_s3_and_record(output_dir)
     
     if uploaded_urls:
         logger.info(f"Successfully uploaded {len(uploaded_urls)} files")
-        logger.debug(f"Uploaded URLs: {uploaded_urls}")
     else:
         logger.error("No files were uploaded successfully")
+
+    # Final cleanup
+    logger.info("Starting final cleanup")
+    cleanup_folders(output_dir)
 
 if __name__ == "__main__":
     main()
