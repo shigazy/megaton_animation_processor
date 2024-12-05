@@ -1,3 +1,4 @@
+input/
 output/
 output2/
 output3/
@@ -8,6 +9,7 @@ Animations/
 Animations2/
 Animations3/
 processed/
+processed-backup/
 gif/
 gifs/
 exports/
