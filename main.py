@@ -147,7 +147,7 @@ def connect_to_rds():
         print("Failed to retrieve database credentials")
         return None
 
-def process_animation(fbx_file, output_dir):
+def process_animation(fbx_file, output_dir, model_fbx_file):
     try:
         logger.debug(f"Attempting to process: {fbx_file}")
         # Check if the FBX file exists
@@ -166,7 +166,7 @@ def process_animation(fbx_file, output_dir):
         animation = load_fbx_animation(fbx_file)
         
         # Render animation frames
-        frames, temp_dir = render_animation(fbx_file, animation, output_dir)
+        frames, temp_dir = render_animation(fbx_file, animation, output_dir, model_fbx_file)
         
         # Check if frames were actually rendered
         existing_frames = [f for f in frames if os.path.exists(f)]
@@ -358,6 +358,19 @@ def main():
     os.makedirs(input_dir, exist_ok=True)
     os.makedirs(exports_dir, exist_ok=True)
 
+    # Ask user to select character model file, only allowing .fbx files
+    model_fbx_file = filedialog.askopenfilename(
+        title="Select Character Model FBX File",
+        filetypes=[("FBX files", "*.fbx")],
+        initialdir=r"C:\Users\higaz\OneDrive\Desktop\Animation Package\avatar"  # Start in the specified directory
+    )
+    if not model_fbx_file:  # User cancelled
+        print("No character model file selected. Exiting...")
+        return
+
+    logger.debug(f"Character model FBX file: {model_fbx_file}")
+
+
     # Ask user to select input directory, defaulting to input folder
     fbx_dir = filedialog.askdirectory(
         title="Select FBX Input Directory",
@@ -402,7 +415,7 @@ def main():
     for fbx_file in fbx_files:
         full_path = os.path.join(fbx_dir, fbx_file)
         logger.debug(f"Processing file: {full_path}")
-        process_animation(full_path, output_dir)
+        process_animation(full_path, output_dir, model_fbx_file)
 
     # Run OpenAI parser
     logger.info("Starting OpenAI parsing process")

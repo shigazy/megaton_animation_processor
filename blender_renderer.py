@@ -4,15 +4,11 @@ import tempfile
 
 BLENDER_PATH = r"C:\Program Files\Blender Foundation\Blender 4.2\blender.exe"
 
-def render_animation(fbx_file, animation, output_dir):
+def render_animation(fbx_file, animation, output_dir, character_fbx_file):
     # Create a subdirectory for the current animation within the output directory
     animation_name = os.path.splitext(os.path.basename(fbx_file))[0]
     temp_dir = os.path.join(output_dir, f"{animation_name}_frames")
     os.makedirs(temp_dir, exist_ok=True)
-
-    # Get the path to the character FBX file
-    character_fbx_file = r"C:\Users\higaz\OneDrive\Desktop\Animation Package\avatar\avatar1.fbx"
-
     # Create a temporary Python script for Blender
     script_content = f"""
 import bpy
